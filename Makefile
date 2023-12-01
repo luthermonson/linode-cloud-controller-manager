@@ -1,4 +1,6 @@
 IMG ?= linode/linode-cloud-controller-manager:canary
+RELEASE_DIR ?= release
+GOLANGCI_LINT_IMG := golangci/golangci-lint:v1.44-alpine
 
 export GO111MODULE=on
 
@@ -7,17 +9,22 @@ all: build
 
 .PHONY: clean
 clean:
-	go clean .
-	rm -r dist/*
+	@go clean .
+	@rm -rf ./.tmp
+	@rm -rf dist/*
+	@rm -rf $(RELEASE_DIR)
 
 .PHONY: codegen
 codegen:
 	go generate ./...
 
+.PHONY: vet
+vet: fmt
+	go vet ./...
+
 .PHONY: lint
-lint:
-	docker run --rm -v "$(shell pwd):/var/work:ro" -w /var/work \
-		golangci/golangci-lint:v1.44.0 golangci-lint run -v --timeout=5m
+lint: vet
+	docker run --rm -v $(PWD):/app -w /app ${GOLANGCI_LINT_IMG} golangci-lint run -v --timeout=5m
 
 .PHONY: fmt
 fmt:
@@ -40,6 +47,12 @@ build: codegen
 	echo "compiling linode-cloud-controller-manager" && \
 		CGO_ENABLED=0 \
 		go build -o dist/linode-cloud-controller-manager .
+
+.PHONY: release
+release:
+	mkdir -p $(RELEASE_DIR)
+	sed -e 's/appVersion: "latest"/appVersion: "$(IMAGE_VERSION)"/g' ./deploy/chart/Chart.yaml
+	tar -czvf ./$(RELEASE_DIR)/helm-chart-$(IMAGE_VERSION).tgz -C ./deploy/chart .
 
 .PHONY: imgname
 # print the Docker image name that will be used
